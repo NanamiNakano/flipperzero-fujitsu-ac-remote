@@ -21,6 +21,60 @@ static void ac_remote_app_tick_event_callback(void* context) {
     scene_manager_handle_tick_event(app->scene_manager);
 }
 
+bool ac_remote_load_settings(ACRemoteAppSettings* app_state) {
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    FlipperFormat* ff = flipper_format_buffered_file_alloc(storage);
+    FuriString* header = furi_string_alloc();
+
+    uint32_t version = 0;
+    bool success = false;
+    do {
+        if(!flipper_format_buffered_file_open_existing(ff, AC_REMOTE_APP_SETTINGS)) break;
+        if(!flipper_format_read_header(ff, header, &version)) break;
+        if(!furi_string_equal(header, "AC Remote") || (version != 1)) break;
+        if(!flipper_format_read_uint32(ff, "Model", &app_state->model, 1)) break;
+        if(app_state->model > HvacFujitsuModelArrew4e) break;
+        if(!flipper_format_read_uint32(ff, "Power", &app_state->power, 1)) break;
+        if(app_state->power > HvacFujitsuPowerOff) break;
+        if(!flipper_format_read_uint32(ff, "Mode", &app_state->mode, 1)) break;
+        if(app_state->mode > HvacFujitsuModeHeat) break;
+        if(!flipper_format_read_uint32(ff, "Temperature", &app_state->temperature, 1)) break;
+        if(app_state->temperature > HVAC_FUJITSU_TEMPERATURE_MAX) break;
+        if(app_state->temperature < HVAC_FUJITSU_TEMPERATURE_MIN) break;
+        if(!flipper_format_read_uint32(ff, "Fan", &app_state->fan, 1)) break;
+        if(app_state->fan > HvacFujitsuFanSpeedQuiet) break;
+        if(!flipper_format_read_uint32(ff, "Swing", &app_state->swing, 1)) break;
+        if(app_state->swing > HvacFujitsuSwingBoth) break;
+        success = true;
+    } while(false);
+    furi_record_close(RECORD_STORAGE);
+    furi_string_free(header);
+    flipper_format_free(ff);
+    return success;
+}
+
+bool ac_remote_store_settings(ACRemoteAppSettings* app_state) {
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    FlipperFormat* ff = flipper_format_file_alloc(storage);
+
+    bool success = false;
+    do {
+        if(!flipper_format_file_open_always(ff, AC_REMOTE_APP_SETTINGS)) break;
+        if(!flipper_format_write_header_cstr(ff, "AC Remote", 1)) break;
+        if(!flipper_format_write_comment_cstr(ff, "")) break;
+        if(!flipper_format_write_uint32(ff, "Model", &app_state->model, 1)) break;
+        if(!flipper_format_write_uint32(ff, "Power", &app_state->power, 1)) break;
+        if(!flipper_format_write_uint32(ff, "Mode", &app_state->mode, 1)) break;
+        if(!flipper_format_write_uint32(ff, "Temperature", &app_state->temperature, 1)) break;
+        if(!flipper_format_write_uint32(ff, "Fan", &app_state->fan, 1)) break;
+        if(!flipper_format_write_uint32(ff, "Swing", &app_state->swing, 1)) break;
+        success = true;
+    } while(false);
+    furi_record_close(RECORD_STORAGE);
+    flipper_format_free(ff);
+    return success;
+}
+
 AC_RemoteApp* ac_remote_app_alloc() {
     AC_RemoteApp* app = malloc(sizeof(AC_RemoteApp));
 
@@ -44,21 +98,38 @@ AC_RemoteApp* ac_remote_app_alloc() {
     view_dispatcher_add_view(
         app->view_dispatcher, AC_RemoteAppViewStack, view_stack_get_view(app->view_stack));
 
+    app->submenu = submenu_alloc();
+    view_dispatcher_add_view(
+        app->view_dispatcher, AC_RemoteAppViewSubmenu, submenu_get_view(app->submenu));
+
     app->ac_remote_panel = ac_remote_panel_alloc();
 
-    scene_manager_next_scene(app->scene_manager, AC_RemoteSceneMitsubishi);
+    if(!ac_remote_load_settings(&app->app_state)) {
+        app->app_state.model = HvacFujitsuModelArrah2e;
+        app->app_state.mode = HvacFujitsuModeAuto;
+        app->app_state.fan = HvacFujitsuFanSpeedAuto;
+        app->app_state.swing = HvacFujitsuSwingOff;
+        app->app_state.power = HvacFujitsuPowerOff;
+        app->app_state.temperature = 24;
+    }
+
+    scene_manager_next_scene(app->scene_manager, AC_RemoteSceneModel);
     return app;
 }
 
 void ac_remote_app_free(AC_RemoteApp* app) {
     furi_assert(app);
 
+    ac_remote_store_settings(&app->app_state);
+
     // Views
     view_dispatcher_remove_view(app->view_dispatcher, AC_RemoteAppViewStack);
+    view_dispatcher_remove_view(app->view_dispatcher, AC_RemoteAppViewSubmenu);
 
     // View dispatcher
     view_dispatcher_free(app->view_dispatcher);
     view_stack_free(app->view_stack);
+    submenu_free(app->submenu);
     ac_remote_panel_free(app->ac_remote_panel);
     scene_manager_free(app->scene_manager);
 

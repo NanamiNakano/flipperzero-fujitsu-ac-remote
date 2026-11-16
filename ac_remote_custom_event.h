@@ -2,7 +2,9 @@
 
 enum AC_RemoteCustomEventType {
     AC_RemoteCustomEventTypeButtonSelected,
+    AC_RemoteCustomEventTypeButtonSelectedLong,
     AC_RemoteCustomEventTypeSendCommand,
+    AC_RemoteCustomEventTypeModelSelected,
 };
 
 #pragma pack(push, 1)
